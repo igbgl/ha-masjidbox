@@ -1,0 +1,13 @@
+{
+  "domain": "masjidbox",
+  "name": "MasjidBox Prayer Times",
+  "version": "1.0.0",
+  "codeowners": ["@igbgl"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/igbgl/ha-masjidbox",
+  "issue_tracker": "https://github.com/igbgl/ha-masjidbox/issues",
+  "integration_type": "device",
+  "iot_class": "cloud_polling",
+  "requirements": []
+}

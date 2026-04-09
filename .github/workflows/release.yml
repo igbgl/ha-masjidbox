@@ -1,0 +1,139 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  determine-version:
+    runs-on: ubuntu-latest
+    outputs:
+      new_tag: ${{ steps.tag.outputs.new_tag }}
+      new_version: ${{ steps.tag.outputs.new_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Determine next version and create temporary tag
+        id: tag
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          default_bump: patch
+          tag_prefix: v
+      
+      - name: Delete temporary tag (will be recreated after manifest update)
+        run: |
+          TAG="${{ steps.tag.outputs.new_tag }}"
+          git push origin --delete "${TAG}" 2>/dev/null || true
+
+  update-manifest-and-release:
+    needs: determine-version
+    runs-on: ubuntu-latest
+    if: needs.determine-version.outputs.new_tag != ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          fetch-tags: true
+      
+      - name: Configure Git
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+      
+      - name: Update manifest.json
+        run: |
+          python3 << EOF
+          import json
+          import os
+          import sys
+          
+          manifest_path = "custom_components/masjidbox/manifest.json"
+          version = os.environ.get('VERSION')
+          
+          if not version:
+              print("Error: VERSION environment variable not set", file=sys.stderr)
+              sys.exit(1)
+          
+          try:
+              with open(manifest_path, 'r') as f:
+                  manifest = json.load(f)
+              
+              manifest['version'] = version
+              
+              with open(manifest_path, 'w') as f:
+                  json.dump(manifest, f, indent=2)
+              print(f"Updated manifest.json version to {version}")
+          except Exception as e:
+              print(f"Error updating manifest.json: {e}", file=sys.stderr)
+              sys.exit(1)
+          EOF
+        env:
+          VERSION: ${{ needs.determine-version.outputs.new_version }}
+      
+      - name: Validate JSON
+        run: |
+          python3 -m json.tool custom_components/masjidbox/manifest.json > /dev/null
+          echo "✓ manifest.json is valid JSON"
+      
+      - name: Commit and push manifest.json update
+        run: |
+          git add custom_components/masjidbox/manifest.json
+          git commit -m "chore: bump version to ${{ needs.determine-version.outputs.new_version }}" || exit 0
+          git push
+      
+      - name: Create and push tag
+        run: |
+          TAG="${{ needs.determine-version.outputs.new_tag }}"
+          git tag -a "${TAG}" -m "Release ${TAG}"
+          git push origin "${TAG}"
+      
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          git fetch --tags
+          CURRENT_TAG="${{ needs.determine-version.outputs.new_tag }}"
+          # Get the previous tag (the one before the current tag)
+          PREVIOUS_TAG=$(git tag --sort=-v:refname | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+$" | sed -n '2p' || echo "")
+          
+          # Generate release notes
+          if [ -z "$PREVIOUS_TAG" ]; then
+            # No previous tag found, get all commits
+            COMMITS=$(git log --pretty=format:"- %s (%h)" --no-merges -20 2>/dev/null || echo "- Initial release")
+            NOTES=$(cat << 'NOTES_INNER'
+          ## Changes
+          
+          NOTES_INNER
+          )
+            NOTES="${NOTES}${COMMITS}"
+          else
+            COMMITS=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges 2>/dev/null || echo "- No commits found")
+            NOTES=$(cat << NOTES_INNER
+          ## Changes since ${PREVIOUS_TAG}
+          
+          NOTES_INNER
+          )
+            NOTES="${NOTES}${COMMITS}"
+          fi
+          
+          # Set output using delimiter (must use >> for all lines)
+          {
+            echo "notes<<NOTES_EOF"
+            echo "$NOTES"
+            echo "NOTES_EOF"
+          } >> $GITHUB_OUTPUT
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.determine-version.outputs.new_tag }}
+          name: ${{ needs.determine-version.outputs.new_tag }}
+          body: ${{ steps.release_notes.outputs.notes }}
+          draft: false
+          prerelease: false

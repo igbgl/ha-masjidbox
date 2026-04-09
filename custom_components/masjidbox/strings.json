@@ -1,0 +1,62 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "MasjidBox",
+        "description": "Enter your masjid unique ID (slug from masjidbox.com/prayer-times/…). The integration discovers the API endpoint from the public website.",
+        "data": {
+          "unique_id": "Masjid unique ID"
+        },
+        "data_description": {
+          "unique_id": "e.g. islam-bgl from https://masjidbox.com/prayer-times/islam-bgl"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to MasjidBox",
+      "invalid_auth": "API rejected the key (try again; the site may have updated)",
+      "unknown": "An unexpected error occurred",
+      "discovery_failed": "Could not find API settings on the prayer-times page (site layout may have changed)",
+      "invalid_unique_id": "Prayer-times page not found for this ID"
+    },
+    "abort": {
+      "already_configured": "This masjid is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "MasjidBox options",
+        "data": {
+          "poll_interval": "Update interval (minutes)",
+          "days": "API days window",
+          "rediscover_on_reload": "Re-discover API key on reload",
+          "include_raw": "Include raw API payload in attributes"
+        },
+        "data_description": {
+          "poll_interval": "How often to refresh prayer data",
+          "days": "Number of days requested from the API (must cover today)",
+          "rediscover_on_reload": "When enabled, fetches the site bundle again on each integration reload (e.g. HA restart)",
+          "include_raw": "Adds a large raw JSON blob to the coordinator for debugging"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "fajr_adhan": { "name": "Fajr adhan" },
+      "fajr_iqamah": { "name": "Fajr iqamah" },
+      "sunrise": { "name": "Sunrise" },
+      "dhuhr_adhan": { "name": "Dhuhr adhan" },
+      "dhuhr_iqamah": { "name": "Dhuhr iqamah" },
+      "asr_adhan": { "name": "Asr adhan" },
+      "asr_iqamah": { "name": "Asr iqamah" },
+      "maghrib_adhan": { "name": "Maghrib adhan" },
+      "maghrib_iqamah": { "name": "Maghrib iqamah" },
+      "isha_adhan": { "name": "Isha adhan" },
+      "isha_iqamah": { "name": "Isha iqamah" },
+      "jumuah_adhan": { "name": "Jumuah adhan" },
+      "jumuah_iqamah": { "name": "Jumuah iqamah" }
+    }
+  }
+}
