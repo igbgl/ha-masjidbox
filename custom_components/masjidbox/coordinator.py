@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import logging
 from typing import Any
 
@@ -86,28 +86,73 @@ def _pick_today_row(
     return None
 
 
-def _build_times_dict(
-    row: dict[str, Any],
-) -> dict[str, datetime | None]:
-    """Map sensor keys to UTC datetime for today's row."""
-    iq = row.get("iqamah") if isinstance(row.get("iqamah"), dict) else {}
+def _next_jumuah_date_local(today: date) -> date:
+    """Next Friday in the local calendar (today if today is Friday). Monday=0 … Friday=4."""
+    offset = (4 - today.weekday()) % 7
+    return today + timedelta(days=offset)
 
-    out: dict[str, datetime | None] = {
-        "fajr_adhan": _parse_iso(row.get("fajr")),
-        "fajr_iqamah": _parse_iso(iq.get("fajr")) if iq else None,
-        "sunrise": _parse_iso(row.get("sunrise")),
-        "dhuhr_adhan": _parse_iso(row.get("dhuhr")),
-        "dhuhr_iqamah": _parse_iso(iq.get("dhuhr")) if iq else None,
-        "asr_adhan": _parse_iso(row.get("asr")),
-        "asr_iqamah": _parse_iso(iq.get("asr")) if iq else None,
-        "maghrib_adhan": _parse_iso(row.get("maghrib")),
-        "maghrib_iqamah": _parse_iso(iq.get("maghrib")) if iq else None,
-        "isha_adhan": _parse_iso(row.get("isha")),
-        "isha_iqamah": _parse_iso(iq.get("isha")) if iq else None,
-        "jumuah_adhan": _first_jumuah_time(row, iqamah=False),
-        "jumuah_iqamah": _first_jumuah_time(row, iqamah=True),
-    }
-    return out
+
+def _find_row_for_local_date(
+    timetable: list[Any],
+    target: date,
+) -> dict[str, Any] | None:
+    """First timetable row whose `date` falls on target in local calendar."""
+    for row in timetable:
+        if not isinstance(row, dict):
+            continue
+        date_s = row.get("date")
+        if not date_s:
+            continue
+        row_dt = _parse_iso(str(date_s))
+        if row_dt is None:
+            continue
+        if dt_util.as_local(row_dt).date() == target:
+            return row
+    return None
+
+
+def _jumuah_times_from_row(row: dict[str, Any]) -> tuple[datetime | None, datetime | None]:
+    """Adhan and iqamah for Jumuah from API fields, with Dhuhr fallback if arrays absent."""
+    adhan = _first_jumuah_time(row, iqamah=False)
+    iqamah_t = _first_jumuah_time(row, iqamah=True)
+    if adhan is None and iqamah_t is None:
+        iq = row.get("iqamah") if isinstance(row.get("iqamah"), dict) else {}
+        adhan = _parse_iso(row.get("dhuhr"))
+        iqamah_t = _parse_iso(iq.get("dhuhr")) if iq else None
+    return adhan, iqamah_t
+
+
+def _build_times_dict(
+    today_row: dict[str, Any] | None,
+    jumuah_row: dict[str, Any] | None,
+) -> dict[str, datetime | None]:
+    """Daily prayers from today_row; Jumuah from jumuah_row (upcoming Friday)."""
+    times: dict[str, datetime | None] = {k: None for k in TIME_SENSOR_KEYS}
+
+    if today_row:
+        iq = (
+            today_row.get("iqamah")
+            if isinstance(today_row.get("iqamah"), dict)
+            else {}
+        )
+        times["fajr_adhan"] = _parse_iso(today_row.get("fajr"))
+        times["fajr_iqamah"] = _parse_iso(iq.get("fajr")) if iq else None
+        times["sunrise"] = _parse_iso(today_row.get("sunrise"))
+        times["dhuhr_adhan"] = _parse_iso(today_row.get("dhuhr"))
+        times["dhuhr_iqamah"] = _parse_iso(iq.get("dhuhr")) if iq else None
+        times["asr_adhan"] = _parse_iso(today_row.get("asr"))
+        times["asr_iqamah"] = _parse_iso(iq.get("asr")) if iq else None
+        times["maghrib_adhan"] = _parse_iso(today_row.get("maghrib"))
+        times["maghrib_iqamah"] = _parse_iso(iq.get("maghrib")) if iq else None
+        times["isha_adhan"] = _parse_iso(today_row.get("isha"))
+        times["isha_iqamah"] = _parse_iso(iq.get("isha")) if iq else None
+
+    if jumuah_row:
+        ja, ji = _jumuah_times_from_row(jumuah_row)
+        times["jumuah_adhan"] = ja
+        times["jumuah_iqamah"] = ji
+
+    return times
 
 
 class MasjidboxCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -187,21 +232,28 @@ class MasjidboxCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not isinstance(timetable, list):
             raise UpdateFailed("Invalid timetable in response")
 
-        row = _pick_today_row(timetable)
-        if row is None:
+        today_row = _pick_today_row(timetable)
+        if today_row is None:
             _LOGGER.warning(
-                "No timetable row matched local today; sensors may be empty"
+                "No timetable row matched local today; daily sensors may be empty"
             )
-            times = {k: None for k in TIME_SENSOR_KEYS}
-        else:
-            times = _build_times_dict(row)
+
+        jumuah_date = _next_jumuah_date_local(dt_util.now().date())
+        jumuah_row = _find_row_for_local_date(timetable, jumuah_date)
+        if jumuah_row is None:
+            _LOGGER.debug(
+                "No timetable row for upcoming Jumuah (%s); raise API days if needed",
+                jumuah_date.isoformat(),
+            )
+
+        times = _build_times_dict(today_row, jumuah_row)
 
         result: dict[str, Any] = {
             "unique_id": self.entry.data[CONF_UNIQUE_ID],
             "masjid_name": payload.get("name"),
             "address": payload.get("address"),
             "times": times,
-            "today_row": row,
+            "today_row": today_row,
         }
         if self._include_raw():
             result["raw"] = payload

@@ -1,0 +1,5 @@
+[tool.pyright]
+include = ["custom_components"]
+pythonVersion = "3.11"
+# homeassistant is provided at runtime inside Home Assistant, not in a typical venv.
+reportMissingImports = false
