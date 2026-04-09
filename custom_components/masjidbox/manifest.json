@@ -1,8 +1,10 @@
 {
   "domain": "masjidbox",
   "name": "MasjidBox Prayer Times",
-  "version": "1.0.0",
-  "codeowners": ["@igbgl"],
+  "version": "0.0.1",
+  "codeowners": [
+    "@igbgl"
+  ],
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/igbgl/ha-masjidbox",
